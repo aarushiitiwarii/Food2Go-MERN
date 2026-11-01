@@ -2,8 +2,8 @@
 
 Food2Go connects **food donors** (households, restaurants, events with surplus food) with **NGOs** that distribute it to people in need.
 
-- **Donors** pick an NGO, donate food (with an optional photo), track the donation's status and see what NGOs are asking for.
-- **NGOs** see donations made to them, accept them, mark them as picked up, and post food requests.
+- **Donors** pick an NGO, donate food (with an optional photo) and track the donation's status. They can also browse NGOs' food requests and fulfil **all or part** of one.
+- **NGOs** see only the donations made to them, accept them and confirm what was received. They post food requests and track each one's progress (received / on the way / still needed) along with every donor's contribution.
 
 > **v2** is a rewrite of the original AWS version (Cognito + API Gateway + Lambda + DynamoDB + S3) as a self-hosted **MERN** application (MongoDB, Express, React, Node).
 
@@ -95,14 +95,32 @@ npm start                   # http://localhost:3000
 
 The frontend calls `http://localhost:5000/api` by default. To change it, set `REACT_APP_API_URL`.
 
-### 3. Tests
+### 3. Demo accounts (optional)
+
+```bash
+cd backend
+npm run seed:demo
+```
+
+This creates one donor and one login per NGO (password `demo1234` for all). Running it again leaves existing accounts alone.
+
+| Role | Email |
+|---|---|
+| Donor | `donor@food2go.test` |
+| CRY | `cry@food2go.test` |
+| Goonj | `goonj@food2go.test` |
+| Akshaya Patra | `akshayapatra@food2go.test` |
+| Helping Hands | `helpinghands@food2go.test` |
+| Feeding India | `feedingindia@food2go.test` |
+
+### 4. Tests
 
 ```bash
 cd backend
 npm test
 ```
 
-21 API tests cover signup/login, auth and role guards, input validation, photo upload rules, NGO-scoped data access and the donation status workflow. They run against an in-memory MongoDB, so no Atlas connection is needed.
+29 API tests cover signup/login, auth and role guards, input validation, photo upload rules, NGO-scoped data access, the donation status workflow, and partial fulfilment of food requests (over-pledging, partial receipt, completion). They run against an in-memory MongoDB, so no Atlas connection is needed.
 
 ---
 
@@ -119,9 +137,10 @@ Base URL: `http://localhost:5000/api`. Protected routes need the header `Authori
 | GET | `/ngos` | — | `?search=pune` | List NGOs (search by name or city) |
 | POST | `/donations` | donor | **form-data**: `ngoId, foodName, quantity, building, street, city, state?, mapLink?, photo?` (file) | Create donation (status `Available`) |
 | GET | `/donations` | any | `?status=Pending` | Donor: own donations · NGO: donations to their NGO |
-| PATCH | `/donations/:id/status` | ngo | `{ status }` | Allowed: `Available→Pending`, `Pending→Completed`, `Pending→Available` |
-| POST | `/food-requests` | ngo | `{ foodNeeded, location, quantity?, notes? }` | Post a food request |
-| GET | `/food-requests` | any | — | Donor: all requests · NGO: own requests |
+| PATCH | `/donations/:id/status` | ngo | `{ status, receivedAmount? }` | Allowed: `Available→Pending`, `Pending→Completed`, `Pending→Available`. For request donations, `receivedAmount` (≤ pledged, defaults to pledged) is added to the request |
+| POST | `/food-requests` | ngo | `{ foodNeeded, quantityNeeded, unit, location, notes? }` | Post a food request |
+| GET | `/food-requests` | any | — | Donor: all requests · NGO: own requests. Each includes `quantityReceived`, `quantityPledged`, `quantityRemaining`, `status` |
+| POST | `/food-requests/:id/donations` | donor | **form-data**: `amount, building, street, city, state?, mapLink?, photo?` | Fulfil all or part of a request. `amount` must be ≤ what is still needed |
 
 **Sample bodies**
 
@@ -136,7 +155,13 @@ Base URL: `http://localhost:5000/api`. Protected routes need the header `Authori
 { "status": "Pending" }
 
 // POST /food-requests
-{ "foodNeeded": "40 lunch boxes", "quantity": "40", "location": "Kothrud, Pune", "notes": "Before 1 pm" }
+{ "foodNeeded": "Lunch boxes", "quantityNeeded": 40, "unit": "boxes", "location": "Kothrud, Pune", "notes": "Before 1 pm" }
+
+// POST /food-requests/:id/donations  (form-data in Postman: Body → form-data)
+amount=25  building=Sunshine Apartments  street=FC Road  city=Pune
+
+// PATCH /donations/:id/status  (NGO confirms only 20 of the 25 pledged arrived)
+{ "status": "Completed", "receivedAmount": 20 }
 ```
 
 **Error format:** `{ "message": "...", "details": [{ "field": "...", "message": "..." }] }` with status `400` (validation), `401` (not logged in), `403` (wrong role or another NGO's data), `404`, or `409` (duplicate email).
@@ -148,6 +173,7 @@ Base URL: `http://localhost:5000/api`. Protected routes need the header `Authori
 - **Layered backend** (routes → controllers → models) keeps HTTP concerns, business rules and data access separate and easy to test.
 - **Authorization lives on the server.** NGOs can only see and update donations made to *their* NGO, and donors only see their own. The frontend never filters data for security.
 - **Status workflow as a state machine** (`ALLOWED_TRANSITIONS` in `models/Donation.js`): invalid jumps such as `Available → Completed` are rejected with `400`.
+- **Partial fulfilment of requests.** A donor's pledge becomes a normal donation linked to the request, so it uses the same accept/complete flow. Open pledges count against what is left, so a request can't be over-pledged. Only amounts the NGO confirms as *received* move the request from `Open` to `Partially Fulfilled` to `Fulfilled`, and if less arrives than was pledged, the gap becomes available to other donors again.
 - **Passwords** are hashed with bcrypt and never returned (`select: false` + `toJSON` transform).
 - **Config in environment variables** (`config/env.js`), with `.env.example` documenting every setting.
 - **`app.js` is separate from `server.js`**, so tests can import the app without opening a port or connecting to Atlas.

@@ -24,12 +24,17 @@ const donationSchema = new mongoose.Schema(
     mapLink: { type: String, trim: true },
     photoUrl: { type: String },
     status: { type: String, enum: STATUSES, default: "Available" },
+    // Set when the donation fulfils (part of) an NGO's food request
+    foodRequest: { type: mongoose.Schema.Types.ObjectId, ref: "FoodRequest" },
+    pledgedAmount: { type: Number, min: 1 },
+    receivedAmount: { type: Number, min: 0 },
   },
   { timestamps: true }
 );
 
 donationSchema.index({ ngo: 1, status: 1 });
 donationSchema.index({ donor: 1 });
+donationSchema.index({ foodRequest: 1, status: 1 });
 
 module.exports = mongoose.model("Donation", donationSchema);
 module.exports.STATUSES = STATUSES;

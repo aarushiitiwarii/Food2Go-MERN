@@ -13,6 +13,9 @@ import {
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { apiFetch, clearSession, getUser, photoSrc } from "../api";
+import RequestProgress, { REQUEST_STATUS_STYLES } from "../components/RequestProgress";
+
+const EMPTY_REQUEST = { foodNeeded: "", quantityNeeded: "", unit: "", location: "", notes: "" };
 
 /**
  * BeneficiaryDashboard (NGO users)
@@ -35,14 +38,11 @@ export default function BeneficiaryDashboard() {
   const [donationsSubtab, setDonationsSubtab] = useState("available"); // available | pending | completed
   const [error, setError] = useState("");
 
-  const [reqForm, setReqForm] = useState({
-    foodNeeded: "",
-    quantity: "",
-    location: "",
-    notes: "",
-  });
+  const [reqForm, setReqForm] = useState(EMPTY_REQUEST);
 
   const [loading, setLoading] = useState(true);
+
+  const loadRequests = () => apiFetch("/food-requests").then(setMyRequests).catch(() => {});
 
   useEffect(() => {
     apiFetch("/donations")
@@ -50,7 +50,7 @@ export default function BeneficiaryDashboard() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
 
-    apiFetch("/food-requests").then(setMyRequests).catch(() => {});
+    loadRequests();
   }, []);
 
   const available = donations.filter((d) => d.status === "Available");
@@ -58,15 +58,21 @@ export default function BeneficiaryDashboard() {
   const completed = donations.filter((d) => d.status === "Completed");
 
   // Saves the new status, then swaps the updated donation into the list
-  const changeStatus = async (donationId, status, nextTab) => {
+  // receivedAmount is only sent when completing a donation made for a food request
+  const changeStatus = async (donationId, status, nextTab, receivedAmount) => {
     try {
       const updated = await apiFetch(`/donations/${donationId}/status`, {
         method: "PATCH",
-        body: { status },
+        body: receivedAmount != null ? { status, receivedAmount } : { status },
       });
       setDonations((prev) => prev.map((d) => (d._id === donationId ? updated : d)));
       setDonationsSubtab(nextTab);
-      toast.success(`Donation marked as ${status}`);
+      if (updated.foodRequest) loadRequests(); // request progress changed
+      toast.success(
+        receivedAmount != null
+          ? `Received ${receivedAmount} ${updated.foodRequest.unit} - request updated`
+          : `Donation marked as ${status}`
+      );
     } catch (err) {
       toast.error(err.message);
     }
@@ -80,7 +86,7 @@ export default function BeneficiaryDashboard() {
     try {
       const created = await apiFetch("/food-requests", { method: "POST", body: reqForm });
       setMyRequests((prev) => [created, ...prev]);
-      setReqForm({ foodNeeded: "", quantity: "", location: "", notes: "" });
+      setReqForm(EMPTY_REQUEST);
       toast.success("✅ Food request submitted! Donors can now see it.");
     } catch (err) {
       toast.error(`⚠️ ${err.message}`);
@@ -219,8 +225,8 @@ export default function BeneficiaryDashboard() {
                     }))
                   ) : donationsSubtab === "pending" ? (
                     renderList(pending, "No pending donations.", (d) => ({
-                      onPrimary: () => changeStatus(d._id, "Completed", "completed"),
-                      primaryLabel: "Mark as Done",
+                      onPrimary: (received) => changeStatus(d._id, "Completed", "completed", received),
+                      primaryLabel: d.foodRequest ? "Mark as Received" : "Mark as Done",
                       onSecondary: () => changeStatus(d._id, "Available", "available"),
                       secondaryLabel: "Cancel",
                     }))
@@ -233,16 +239,53 @@ export default function BeneficiaryDashboard() {
               <div className="bg-white rounded-2xl shadow p-6">
                 <h2 className="text-xl font-semibold text-gray-800 mb-4">Your Food Requests</h2>
                 {myRequests.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {myRequests.map((r) => (
-                      <div key={r._id} className="border rounded-xl p-4">
-                        <h3 className="font-semibold text-gray-800">{r.foodNeeded}</h3>
-                        <p className="text-sm text-gray-600 mt-1"><strong>Quantity:</strong> {r.quantity || "—"}</p>
-                        <p className="text-sm text-gray-600"><strong>Location:</strong> {r.location}</p>
-                        {r.notes && <p className="text-sm text-gray-500 italic mt-1">"{r.notes}"</p>}
-                        <p className="text-xs text-gray-400 mt-2">{new Date(r.createdAt).toLocaleString()}</p>
-                      </div>
-                    ))}
+                  <div className="space-y-4">
+                    {myRequests.map((r) => {
+                      const contributions = donations.filter((d) => d.foodRequest?._id === r._id);
+                      return (
+                        <div key={r._id} className="border rounded-xl p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h3 className="font-semibold text-gray-800">
+                                {r.foodNeeded} · {r.quantityNeeded} {r.unit}
+                              </h3>
+                              <p className="text-sm text-gray-600">{r.location}</p>
+                            </div>
+                            <span className={`px-2 py-1 text-xs rounded-full whitespace-nowrap ${REQUEST_STATUS_STYLES[r.status]}`}>
+                              {r.status}
+                            </span>
+                          </div>
+                          {r.notes && <p className="text-sm text-gray-500 italic mt-1">"{r.notes}"</p>}
+
+                          <div className="mt-3">
+                            <RequestProgress request={r} />
+                          </div>
+
+                          <div className="mt-3">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                              Contributions ({contributions.length})
+                            </p>
+                            {contributions.length > 0 ? (
+                              <ul className="divide-y text-sm">
+                                {contributions.map((d) => (
+                                  <li key={d._id} className="flex items-center justify-between py-1.5">
+                                    <span className="text-gray-700">{d.donorName}</span>
+                                    <span className="text-gray-600">
+                                      {d.status === "Completed"
+                                        ? `${d.receivedAmount} of ${d.pledgedAmount} ${r.unit} received`
+                                        : `${d.pledgedAmount} ${r.unit} pledged · ${d.status}`}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-sm text-gray-400">No donors yet.</p>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-2">Posted {new Date(r.createdAt).toLocaleString()}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-gray-500">You haven't posted any requests yet.</p>
@@ -266,21 +309,37 @@ export default function BeneficiaryDashboard() {
                     name="foodNeeded"
                     value={reqForm.foodNeeded}
                     onChange={handleReqChange}
-                    placeholder="e.g., 50 lunch boxes"
+                    placeholder="e.g., Lunch boxes, Rice"
                     className="mt-1 w-full border rounded-lg p-2 focus:ring-2 focus:ring-green-300"
                     required
                   />
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Quantity / Details</label>
-                  <input
-                    name="quantity"
-                    value={reqForm.quantity}
-                    onChange={handleReqChange}
-                    placeholder="e.g., 50 boxes / 20kg rice"
-                    className="mt-1 w-full border rounded-lg p-2 focus:ring-2 focus:ring-green-300"
-                  />
+                <div className="flex gap-2">
+                  <div className="w-1/2">
+                    <label className="text-sm font-medium text-gray-700">Quantity</label>
+                    <input
+                      name="quantityNeeded"
+                      type="number"
+                      min={1}
+                      value={reqForm.quantityNeeded}
+                      onChange={handleReqChange}
+                      placeholder="e.g., 50"
+                      className="mt-1 w-full border rounded-lg p-2 focus:ring-2 focus:ring-green-300"
+                      required
+                    />
+                  </div>
+                  <div className="w-1/2">
+                    <label className="text-sm font-medium text-gray-700">Unit</label>
+                    <input
+                      name="unit"
+                      value={reqForm.unit}
+                      onChange={handleReqChange}
+                      placeholder="boxes, kg..."
+                      className="mt-1 w-full border rounded-lg p-2 focus:ring-2 focus:ring-green-300"
+                      required
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -348,6 +407,11 @@ function SubtabButton({ active, activeClass, onClick, children }) {
 
 function DonationCard({ donation, onPrimary, primaryLabel, onSecondary, secondaryLabel, completed }) {
   const pickup = [donation.building, donation.street, donation.city].filter(Boolean).join(", ");
+  const request = donation.foodRequest;
+  // For request donations the NGO confirms how much actually arrived before completing
+  const needsReceivedAmount = request && donation.status === "Pending";
+  const [confirming, setConfirming] = useState(false);
+  const [received, setReceived] = useState(String(donation.pledgedAmount || ""));
 
   return (
     <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
@@ -370,8 +434,17 @@ function DonationCard({ donation, onPrimary, primaryLabel, onSecondary, secondar
           </div>
         </div>
 
+        {request && (
+          <span className="inline-block mt-2 px-2 py-0.5 text-xs rounded-full bg-blue-50 text-blue-700">
+            For your request: {request.foodNeeded} ({request.quantityNeeded} {request.unit})
+          </span>
+        )}
+
         <div className="mt-3 text-sm text-gray-600">
           <p><strong>Quantity:</strong> {donation.quantity}</p>
+          {completed && donation.receivedAmount != null && (
+            <p className="text-green-700"><strong>Received:</strong> {donation.receivedAmount} {request?.unit}</p>
+          )}
           <p className="mt-1"><strong>Pickup:</strong> {pickup || "Not specified"}</p>
           {donation.mapLink && (
             <a href={donation.mapLink} target="_blank" rel="noreferrer" className="text-blue-500 underline">
@@ -380,10 +453,44 @@ function DonationCard({ donation, onPrimary, primaryLabel, onSecondary, secondar
           )}
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
+        {confirming && (
+          <div className="mt-4 p-3 bg-yellow-50 rounded-lg">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              How many {request.unit} did you receive?
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={donation.pledgedAmount}
+                value={received}
+                onChange={(e) => setReceived(e.target.value)}
+                className="w-24 border rounded-lg p-1.5"
+              />
+              <span className="text-xs text-gray-500">of {donation.pledgedAmount} pledged</span>
+            </div>
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => onPrimary(Number(received))}
+                disabled={!(Number(received) >= 1 && Number(received) <= donation.pledgedAmount)}
+                className="flex-1 text-sm bg-green-600 text-white py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirming(false)}
+                className="flex-1 text-sm border border-gray-200 py-1.5 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Back
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className={`mt-4 flex items-center gap-3 ${confirming ? "hidden" : ""}`}>
           {!completed && onPrimary && (
             <button
-              onClick={onPrimary}
+              onClick={() => (needsReceivedAmount ? setConfirming(true) : onPrimary())}
               className={`flex-1 text-sm font-medium py-2 rounded-lg ${donation.status === "Available" ? "bg-green-600 text-white hover:bg-green-700" : "bg-yellow-500 text-white"}`}
             >
               {primaryLabel}

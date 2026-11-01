@@ -1,6 +1,7 @@
 const Donation = require("../models/Donation");
 const { ALLOWED_TRANSITIONS } = require("../models/Donation");
 const Ngo = require("../models/Ngo");
+const FoodRequest = require("../models/FoodRequest");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 
@@ -36,7 +37,9 @@ exports.listDonations = asyncHandler(async (req, res) => {
   const filter = req.user.role === "ngo" ? { ngo: req.user.ngo._id } : { donor: req.user._id };
   if (req.query.status) filter.status = req.query.status;
 
-  const donations = await Donation.find(filter).sort({ createdAt: -1 });
+  const donations = await Donation.find(filter)
+    .populate("foodRequest", "foodNeeded quantityNeeded quantityReceived unit status")
+    .sort({ createdAt: -1 });
   res.json(donations);
 });
 
@@ -54,7 +57,21 @@ exports.updateStatus = asyncHandler(async (req, res) => {
     throw new ApiError(400, `Cannot change status from ${donation.status} to ${next}`);
   }
 
+  // For request donations, the NGO confirms how much actually arrived (defaults to the pledged amount)
+  if (next === "Completed" && donation.foodRequest) {
+    const received = req.body.receivedAmount ?? donation.pledgedAmount;
+    if (received > donation.pledgedAmount) {
+      throw new ApiError(400, `Received amount cannot be more than the ${donation.pledgedAmount} pledged`);
+    }
+    donation.receivedAmount = received;
+
+    const request = await FoodRequest.findById(donation.foodRequest);
+    request.quantityReceived = Math.min(request.quantityNeeded, request.quantityReceived + received);
+    await request.save(); // pre-save hook updates Open / Partially Fulfilled / Fulfilled
+  }
+
   donation.status = next;
   await donation.save();
+  await donation.populate("foodRequest", "foodNeeded quantityNeeded quantityReceived unit status");
   res.json(donation);
 });

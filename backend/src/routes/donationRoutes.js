@@ -33,6 +33,7 @@ router.patch(
   [
     param("id").isMongoId().withMessage("Invalid donation id"),
     body("status").isIn(STATUSES).withMessage(`Status must be one of ${STATUSES.join(", ")}`),
+    body("receivedAmount").optional().isInt({ min: 1 }).withMessage("Received amount must be at least 1").toInt(),
   ],
   validate,
   donations.updateStatus
