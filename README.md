@@ -2,6 +2,8 @@
 
 Food2Go connects **food donors** (households, restaurants, events with surplus food) with **NGOs** that distribute it to people in need.
 
+**Live demo:** https://food2go.vercel.app — log in with the [demo accounts](#3-demo-accounts-optional) (password `demo1234`). The API runs on Render's free tier, so the first request after a while can take up to a minute while it wakes up.
+
 - **Donors** pick an NGO, donate food (with an optional photo) and track the donation's status. They can also browse NGOs' food requests and fulfil **all or part** of one.
 - **NGOs** see only the donations made to them, accept them and confirm what was received. They post food requests and track each one's progress (received / on the way / still needed) along with every donor's contribution.
 
