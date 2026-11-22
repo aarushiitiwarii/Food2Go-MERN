@@ -2,7 +2,24 @@
 
 Food2Go connects **food donors** (households, restaurants, events with surplus food) with **NGOs** that distribute it to people in need.
 
-**Live demo:** https://food2go.vercel.app — log in with the [demo accounts](#3-demo-accounts-optional) (password `demo1234`). The API runs on Render's free tier, so the first request after a while can take up to a minute while it wakes up.
+**Live demo:** https://food2go.vercel.app
+
+The API runs on Render's free tier, so the first request after a while can take up to a minute while it wakes up.
+
+### Demo logins
+
+All accounts use the password **`demo1234`**.
+
+| Log in as | Page | Email |
+|---|---|---|
+| Donor | I'm a Donor | `donor@food2go.test` |
+| NGO: Helping Hands | I'm a Beneficiary | `helpinghands@food2go.test` |
+| NGO: CRY | I'm a Beneficiary | `cry@food2go.test` |
+| NGO: Goonj | I'm a Beneficiary | `goonj@food2go.test` |
+| NGO: Akshaya Patra | I'm a Beneficiary | `akshayapatra@food2go.test` |
+| NGO: Feeding India | I'm a Beneficiary | `feedingindia@food2go.test` |
+
+**Try this:** log in as the donor and donate to Helping Hands, or fulfil part of one of its food requests. Then log in as Helping Hands to accept the donation and confirm how much arrived. Log in as CRY and you'll see it can't see Helping Hands' donations.
 
 - **Donors** pick an NGO, donate food (with an optional photo) and track the donation's status. They can also browse NGOs' food requests and fulfil **all or part** of one.
 - **NGOs** see only the donations made to them, accept them and confirm what was received. They post food requests and track each one's progress (received / on the way / still needed) along with every donor's contribution.
